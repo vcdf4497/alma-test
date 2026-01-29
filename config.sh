@@ -1,12 +1,12 @@
 #!/bin/bash
 # ==========================================================================
-# ARCH LINUX ULTIMATE VM INSTALLER - BY MIDO
-# Support: BIOS & UEFI | XFCE | Auto-Partitioning
+# ARCH LINUX PRO INSTALLER - BY MIDO
+# Optimized for Proxmox, VM & Physical
 # ==========================================================================
 
 set -e
 
-# --- Couleurs et Style ---
+# --- Style ---
 C_BLUE='\033[1;34m'
 C_GREEN='\033[1;32m'
 C_RED='\033[1;31m'
@@ -15,61 +15,71 @@ C_NC='\033[0m'
 
 header() {
     clear
-    echo -e "${C_BLUE}###########################################${C_NC}"
-    echo -e "${C_BLUE}#       ARCH INSTALLER - BY MIDO          #${C_NC}"
-    echo -e "${C_BLUE}###########################################${C_NC}"
-    echo ""
+    echo -e "${C_BLUE}"
+    echo "  __  __ ___ ___   ___     ___ _  _ ___ _____ _   _    _    "
+    echo " |  \/  |_ _|   \ / _ \   |_ _| \| / __|_   _/_\ | |  | |   "
+    echo " | |\/| || || |) | (_) |   | || .  \__ \ | |/ _ \| |__| |__ "
+    echo " |_|  |_|___|___/ \___/   |___|_|\_|___/ |_/_/ \_\____|____|"
+    echo -e "                                         By MIDO${C_NC}\n"
 }
 
-error_exit() {
-    echo -e "${C_RED}[ERREUR] Ligne $1 : L'installation a échoué.${C_NC}"
-    exit 1
-}
-
-trap 'error_exit $LINENO' ERR
+trap 'echo -e "${C_RED}\n[!] Erreur détectée. Sortie...${C_NC}"; exit 1' ERR
 
 header
 
-# --- 1️⃣ Questionnaire ---
-read -p "Nom de la machine (hostname) [mido-arch]: " VMNAME
-VMNAME=${VMNAME:-mido-arch}
+# --- 0️⃣ Préparation Réseau & Heure ---
+echo -e "${C_YELLOW}[*] Synchronisation de l'horloge système...${C_NC}"
+timedatectl set-ntp true
 
-echo -e "${C_YELLOW}Configuration du mot de passe unique (root & user)...${C_NC}"
-read -sp "Entrez le mot de passe : " PASS
-echo
-read -sp "Confirmez le mot de passe : " PASS2
-echo
-[[ "$PASS" != "$PASS2" ]] && echo -e "${C_RED}Mots de passe différents !${C_NC}" && exit 1
+# --- 1️⃣ Questionnaire Utilisateur ---
+read -p "Nom d'utilisateur [user]: " USERNAME
+USERNAME=${USERNAME:-user}
 
-# --- 2️⃣ Préparation Disque ---
-DISK=$(lsblk -d -n -b -o NAME,SIZE,TYPE | grep 'disk' | sort -k2 -nr | head -n1 | awk '{print "/dev/"$1}')
-echo -e "${C_GREEN}[+] Disque cible : $DISK${C_NC}"
+read -p "Nom de la machine [arch-vm]: " VMNAME
+VMNAME=${VMNAME:-arch-vm}
 
-# Nettoyage complet
+read -sp "Mot de passe (Root & User) : " PASS
+echo ""
+
+# --- 2️⃣ Sélection du Disque ---
+echo -e "\n${C_BLUE}[*] Disques disponibles :${C_NC}"
+lsblk -d -n -o NAME,SIZE,MODEL | grep -v "loop"
+echo ""
+read -p "Entrez le nom du disque (ex: sda, vda, nvme0n1) : " DISK_NAME
+DISK="/dev/$DISK_NAME"
+
+if [ ! -b "$DISK" ]; then
+    echo -e "${C_RED}[!] Le disque $DISK n'existe pas.${C_NC}"
+    exit 1
+fi
+
+# --- 3️⃣ Options Supplémentaires ---
+echo -e "\n${C_YELLOW}--- Options d'installation ---${C_NC}"
+read -p "Installer Docker ? (y/n): " INSTALL_DOCKER
+read -p "Installer NVM (Node Version Manager) ? (y/n): " INSTALL_NVM
+
+# --- 4️⃣ Partitionnement Automatique ---
+echo -e "\n${C_GREEN}[*] Nettoyage et partitionnement de $DISK...${C_NC}"
 sgdisk --zap-all "$DISK"
-wipefs -a "$DISK"
 
-# Détection Mode (UEFI/BIOS)
 if [ -d /sys/firmware/efi ]; then
     MODE="UEFI"
     sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI" "$DISK"
     sgdisk -n 2:0:+4G   -t 2:8200 -c 2:"SWAP" "$DISK"
     sgdisk -n 3:0:0     -t 3:8300 -c 3:"ROOT" "$DISK"
-    P_EFI="${DISK}1"
-    P_SWAP="${DISK}2"
-    P_ROOT="${DISK}3"
-    [[ "$DISK" == *"nvme"* ]] && { P_EFI="${DISK}p1"; P_SWAP="${DISK}p2"; P_ROOT="${DISK}p3"; }
+    P_EFI=$(lsblk -np "$DISK" | grep -E "${DISK}p?1" | head -n1 | awk '{print $1}')
+    P_SWAP=$(lsblk -np "$DISK" | grep -E "${DISK}p?2" | head -n1 | awk '{print $1}')
+    P_ROOT=$(lsblk -np "$DISK" | grep -E "${DISK}p?3" | head -n1 | awk '{print $1}')
 else
     MODE="BIOS"
     parted -s "$DISK" mklabel msdos
     parted -s "$DISK" mkpart primary linux-swap 1MiB 4GiB
     parted -s "$DISK" mkpart primary ext4 4GiB 100%
-    P_SWAP="${DISK}1"
-    P_ROOT="${DISK}2"
+    P_SWAP=$(lsblk -np "$DISK" | grep -E "${DISK}p?1" | head -n1 | awk '{print $1}')
+    P_ROOT=$(lsblk -np "$DISK" | grep -E "${DISK}p?2" | head -n1 | awk '{print $1}')
 fi
 
-# --- 3️⃣ Formatage ---
-echo -e "${C_GREEN}[+] Formatage en cours...${C_NC}"
+# --- 5️⃣ Formatage & Montage ---
 mkswap "$P_SWAP" && swapon "$P_SWAP"
 mkfs.ext4 -F "$P_ROOT"
 mount "$P_ROOT" /mnt
@@ -80,16 +90,19 @@ if [ "$MODE" == "UEFI" ]; then
     mount "$P_EFI" /mnt/boot/efi
 fi
 
-# --- 4️⃣ Pacstrap ---
-echo -e "${C_GREEN}[+] Installation du système de base + XFCE...${C_NC}"
-pacstrap /mnt base linux linux-firmware base-devel networkmanager sudo xfce4 xfce4-goodies lightdm lightdm-gtk-greeter xterm xorg-server
+# --- 6️⃣ Pacstrap ---
+echo -e "${C_GREEN}[*] Installation des paquets...${C_NC}"
+PKGS="base linux linux-firmware base-devel networkmanager sudo xfce4 xfce4-goodies lightdm lightdm-gtk-greeter xterm xorg-server qemu-guest-agent"
+[[ "$INSTALL_DOCKER" =~ ^[Yy]$ ]] && PKGS="$PKGS docker docker-compose"
 
-# --- 5️⃣ Configuration (Chroot) ---
+pacstrap /mnt $PKGS
+
+# --- 7️⃣ Configuration Chroot ---
 genfstab -U /mnt >> /mnt/etc/fstab
 
 arch-chroot /mnt /bin/bash <<EOF
 set -e
-# Locale & Time
+# Localisation
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 hwclock --systohc
 echo "fr_FR.UTF-8 UTF-8" > /etc/locale.gen
@@ -97,14 +110,19 @@ locale-gen
 echo "LANG=fr_FR.UTF-8" > /etc/locale.conf
 echo "KEYMAP=fr" > /etc/vconsole.conf
 
-# Hostname
+# Réseau
 echo "$VMNAME" > /etc/hostname
 
-# Users
+# Comptes
 echo "root:$PASS" | chpasswd
-useradd -m -G wheel -s /bin/bash mido
-echo "mido:$PASS" | chpasswd
+useradd -m -G wheel,docker -s /bin/bash "$USERNAME"
+echo "$USERNAME:$PASS" | chpasswd
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
+# NVM (si choisi)
+if [[ "$INSTALL_NVM" =~ ^[Yy]$ ]]; then
+    sudo -u "$USERNAME" bash -c "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
+fi
 
 # Bootloader
 pacman -S --noconfirm grub
@@ -119,14 +137,17 @@ grub-mkconfig -o /boot/grub/grub.cfg
 # Services
 systemctl enable NetworkManager
 systemctl enable lightdm
+systemctl enable qemu-guest-agent
+[[ "$INSTALL_DOCKER" =~ ^[Yy]$ ]] && systemctl enable docker
 EOF
 
-# --- 6️⃣ Fin ---
+# --- 8️⃣ Fin ---
 header
-echo -e "${C_GREEN}INSTALLATION TERMINÉE PAR MIDO !${C_NC}"
-echo -e "Utilisateur créé : ${C_YELLOW}mido${C_NC}"
-echo -e "Mode de boot : ${C_YELLOW}$MODE${C_NC}"
+echo -e "${C_GREEN}L'INSTALLATION EST TERMINÉE !${C_NC}"
+echo -e "Mode : ${C_YELLOW}$MODE${C_NC} | Disque : ${C_YELLOW}$DISK${C_NC}"
+echo -e "Utilisateur : ${C_YELLOW}$USERNAME${C_NC}"
+echo -e "Proxmox Agent : ${C_GREEN}Activé${C_NC}"
 echo ""
-echo -e "${C_RED}Retirez l'ISO et appuyez sur ENTREE pour redémarrer.${C_NC}"
+echo -e "${C_RED}Retirez l'ISO et appuyez sur Entrée pour reboot.${C_NC}"
 read
 reboot

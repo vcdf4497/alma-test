@@ -19,7 +19,7 @@ header() {
     clear
     echo -e "${C_BLUE}"
     echo "  __  __ ___ ___   ___     ___ _  _ ___ _____ _   _    _    "
-    echo " |  \/  |_ _|   \/ _ \   |_ _| \| / __|_   _/_\ | |  | |   "
+    echo " |  \/  |_ _|   \ / _ \   |_ _| \| / __|_   _/_\ | |  | |   "
     echo " | |\/| || || |) | (_) |   | || .  \__ \ | |/ _ \| |__| |__ "
     echo " |_|  |_|___|___/ \___/   |___|_|\_|___/ |_/_/ \_\____|____|"
     echo -e "                                    By MIDO v2.0 (JSON)${C_NC}\n"
@@ -322,19 +322,7 @@ case "$DE_CHOICE" in
         DM_SERVICE="lightdm"
         ;;
 esac
-
-        ;;
-    4)
-        echo -e "${C_GREEN}→ Installation minimale${C_NC}"
-        DE_PACKAGES=""
-        DM_SERVICE=""
-        ;;
-    *)
-        echo -e "${C_YELLOW}⚠ Choix invalide, XFCE par défaut${C_NC}"
-        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4-session xfce4-panel thunar xfce4-terminal"
-        DM_SERVICE="lightdm"
-        ;;
-esac
+ 
 
 # --- 5️⃣ Choix du navigateur (si environnement graphique) ---
 if [ -n "$DE_PACKAGES" ]; then
@@ -854,4 +842,3 @@ read -r </dev/tty
 
 umount -R /mnt 2>/dev/null || true
 reboot
-

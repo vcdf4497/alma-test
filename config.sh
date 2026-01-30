@@ -46,7 +46,7 @@ echo -e "\n${C_BLUE}[*] Disques disponibles :${C_NC}"
 lsblk -d -n -o NAME,SIZE,MODEL | grep -v "loop"
 echo ""
 read -p "Entrez le nom du disque (ex: sda, vda, nvme0n1) : " DISK_NAME
-DISK="/dev/$DISK_NAME"
+DISK="$DISK_NAME"
 
 if [ ! -b "$DISK" ]; then
     echo -e "${C_RED}[!] Le disque $DISK n'existe pas.${C_NC}"

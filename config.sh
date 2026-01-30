@@ -680,7 +680,60 @@ echo ""
 
 # Installation des paquets de base
 echo -e "${C_GREEN}[*] Installation du système de base...${C_NC}"
-pacstrap -K /mnt "${PKGS[@]}"
+
+# pacstrap with retries and a fallback that excludes nvidia packages if needed
+pacstrap_with_retries() {
+    local max_attempts=5
+    local attempt=1
+    while [ $attempt -le $max_attempts ]; do
+        echo "  → Tentative $attempt/$max_attempts: pacstrap..."
+        if pacstrap -K /mnt "${PKGS[@]}"; then
+            echo "  → pacstrap réussi"
+            return 0
+        fi
+        echo -e "${C_YELLOW}  ⚠ pacstrap a échoué à la tentative $attempt${C_NC}"
+
+        # Rafraîchir les miroirs si possible
+        if command -v reflector &>/dev/null; then
+            echo "  → Mise à jour des miroirs avec reflector..."
+            reflector --country France,Germany,Belgium --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist || true
+        else
+            echo "  → Rafraîchissement de la base pacman..."
+            pacman -Sy --noconfirm || true
+        fi
+
+        echo "  → Attente avant nouvelle tentative..."
+        sleep $((attempt * 5))
+        attempt=$((attempt + 1))
+    done
+
+    # Fallback: tenter d'installer sans paquets contenant 'nvidia'
+    filtered_pkgs=()
+    for p in "${PKGS[@]}"; do
+        case "$p" in
+            *nvidia*|*NVIDIA*) continue ;;
+            *) filtered_pkgs+=("$p") ;;
+        esac
+    done
+
+    if [ ${#filtered_pkgs[@]} -lt ${#PKGS[@]} ]; then
+        echo -e "${C_YELLOW}  ⚠ Réessai sans paquets 'nvidia'...${C_NC}"
+        if pacstrap -K /mnt "${filtered_pkgs[@]}"; then
+            echo "  → pacstrap réussi (sans paquets nvidia)"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+if ! pacstrap_with_retries; then
+    echo -e "${C_RED}[!] ERREUR: Échec de l'installation des paquets après plusieurs tentatives.${C_NC}"
+    echo "Vérifiez votre connexion réseau, la mirrorlist et relancez le script." 
+    echo "Mirrorlist actuelle (top 20):"
+    head -n 20 /etc/pacman.d/mirrorlist
+    exit 1
+fi
 
 # Installation des groupes complets si demandé
 if [[ "$INSTALL_FULL_DE" =~ ^[YyOo]$ ]]; then

@@ -317,14 +317,39 @@ if [[ ! "$CONFIRM" =~ ^(oui|OUI|Oui|yes|YES|Yes|y|Y|o|O)$ ]]; then
     exit 0
 fi
 
-# --- 6️⃣ Partitionnement effectif ---
+# --- 6️⃣ Nettoyage du disque avant partitionnement ---
+echo -e "\n${C_YELLOW}[*] Nettoyage du disque $DISK...${C_NC}"
+
+# Démonter toutes les partitions du disque
+for mount_point in $(mount | grep "^$DISK" | awk '{print $3}'); do
+    echo "  → Démontage de $mount_point"
+    umount -R "$mount_point" 2>/dev/null || true
+done
+
+# Désactiver le swap sur ce disque
+swapoff "${DISK}"* 2>/dev/null || true
+swapoff -a 2>/dev/null || true
+
+# Tuer tous les processus utilisant le disque
+fuser -km "$DISK" 2>/dev/null || true
+
+# Attendre un peu
+sleep 2
+
+# --- 7️⃣ Partitionnement effectif ---
 echo -e "\n${C_GREEN}[*] Partitionnement de $DISK...${C_NC}"
 
 if [ "$BOOT_MODE" = "UEFI" ]; then
     # Mode UEFI avec GPT
-    wipefs -a "$DISK" 2>/dev/null || true
-    sgdisk --zap-all "$DISK"
+    echo "  → Effacement des signatures..."
+    wipefs -af "$DISK" 2>/dev/null || true
+    dd if=/dev/zero of="$DISK" bs=512 count=1 conv=notrunc 2>/dev/null || true
     
+    echo "  → Création de la table GPT..."
+    sgdisk --zap-all "$DISK" 2>/dev/null || true
+    sgdisk --clear "$DISK" 2>/dev/null || true
+    
+    echo "  → Création des partitions..."
     case "$SCHEME" in
         small)
             sgdisk -n 1:0:+512M  -t 1:ef00 -c 1:"EFI"  "$DISK"
@@ -342,9 +367,15 @@ if [ "$BOOT_MODE" = "UEFI" ]; then
             ;;
     esac
     
-    # Recharger la table de partitions
+    # Recharger la table de partitions et attendre
+    echo "  → Actualisation de la table de partitions..."
     partprobe "$DISK" 2>/dev/null || true
-    sleep 2
+    udevadm settle 2>/dev/null || true
+    sleep 3
+    
+    # Forcer la relecture du kernel
+    blockdev --rereadpt "$DISK" 2>/dev/null || true
+    sleep 1
     
     # Détection des partitions créées
     P_EFI="${DISK}1"
@@ -368,9 +399,14 @@ if [ "$BOOT_MODE" = "UEFI" ]; then
     
 else
     # Mode BIOS avec MBR
-    wipefs -a "$DISK" 2>/dev/null || true
+    echo "  → Effacement des signatures..."
+    wipefs -af "$DISK" 2>/dev/null || true
+    dd if=/dev/zero of="$DISK" bs=512 count=1 conv=notrunc 2>/dev/null || true
+    
+    echo "  → Création de la table MBR..."
     parted -s "$DISK" mklabel msdos
     
+    echo "  → Création des partitions..."
     case "$SCHEME" in
         small)
             parted -s "$DISK" mkpart primary ext4 1MiB 100%
@@ -390,6 +426,16 @@ else
             ;;
     esac
     
+    # Recharger la table de partitions et attendre
+    echo "  → Actualisation de la table de partitions..."
+    partprobe "$DISK" 2>/dev/null || true
+    udevadm settle 2>/dev/null || true
+    sleep 3
+    
+    # Forcer la relecture du kernel
+    blockdev --rereadpt "$DISK" 2>/dev/null || true
+    sleep 1
+    
     # Gestion NVMe pour BIOS aussi
     if [[ "$DISK" =~ nvme ]]; then
         if [ "$SCHEME" = "small" ]; then
@@ -400,6 +446,19 @@ else
         fi
     fi
 fi
+
+# Vérifier que les partitions existent vraiment
+echo "  → Vérification des partitions..."
+for part in "$P_EFI" "$P_SWAP" "$P_ROOT"; do
+    if [ -n "$part" ] && [ ! -b "$part" ]; then
+        echo -e "${C_YELLOW}  ⚠ Partition $part non détectée, attente supplémentaire...${C_NC}"
+        sleep 3
+        partprobe "$DISK" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
+        sleep 2
+        break
+    fi
+done
 
 # Affichage des partitions
 echo -e "\n${C_BLUE}Partitions créées:${C_NC}"

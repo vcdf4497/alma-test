@@ -1,8 +1,8 @@
 #!/bin/bash
-# ==========================================================================
+# ========================================================================== 
 # ARCH LINUX PRO INSTALLER - BY MIDO
 # Optimized for Proxmox, VM & Physical
-# ==========================================================================
+# ========================================================================== 
 
 set -e
 
@@ -17,7 +17,7 @@ header() {
     clear
     echo -e "${C_BLUE}"
     echo "  __  __ ___ ___   ___     ___ _  _ ___ _____ _   _    _    "
-    echo " |  \/  |_ _|   \ / _ \   |_ _| \| / __|_   _/_\ | |  | |   "
+    echo " |  \/  |_ _|   \/ _ \   |_ _| \| / __|_   _/_\ | |  | |   "
     echo " | |\/| || || |) | (_) |   | || .  \__ \ | |/ _ \| |__| |__ "
     echo " |_|  |_|___|___/ \___/   |___|_|\_|___/ |_/_/ \_\____|____|"
     echo -e "                                         By MIDO${C_NC}\n"
@@ -46,7 +46,12 @@ echo -e "\n${C_BLUE}[*] Disques disponibles :${C_NC}"
 lsblk -d -n -o NAME,SIZE,MODEL | grep -v "loop"
 echo ""
 read -p "Entrez le nom du disque (ex: sda, vda, nvme0n1) : " DISK_NAME
-DISK="$DISK_NAME"
+# Normalize input: allow either '/dev/sda' or 'sda'
+if [[ "$DISK_NAME" == /* ]]; then
+    DISK="$DISK_NAME"
+else
+    DISK="/dev/$DISK_NAME"
+fi
 
 if [ ! -b "$DISK" ]; then
     echo -e "${C_RED}[!] Le disque $DISK n'existe pas.${C_NC}"
@@ -74,7 +79,7 @@ else
     MODE="BIOS"
     parted -s "$DISK" mklabel msdos
     parted -s "$DISK" mkpart primary linux-swap 1MiB 4GiB
-    parted -s "$DISK" mkpart primary ext4 4GiB 100%
+    parted -s "$DISK" mkpart primary ext4 4GiB 100% 
     P_SWAP=$(lsblk -np "$DISK" | grep -E "${DISK}p?1" | head -n1 | awk '{print $1}')
     P_ROOT=$(lsblk -np "$DISK" | grep -E "${DISK}p?2" | head -n1 | awk '{print $1}')
 fi

@@ -105,11 +105,11 @@ bytes_to_human() {
 
 header
 
-# Vérifier les dépendances
-for cmd in jq bc lsblk sgdisk parted; do
+# Vérifier les dépendances (jq n'est plus nécessaire)
+for cmd in bc lsblk sgdisk parted; do
     if ! command -v "$cmd" &>/dev/null; then
         echo -e "${C_RED}[!] Commande manquante: $cmd${C_NC}"
-        echo "Installation: pacman -S jq bc util-linux gptfdisk parted"
+        echo "Installation: pacman -S bc util-linux gptfdisk parted"
         exit 1
     fi
 done
@@ -125,17 +125,46 @@ _read "Nom de la machine [arch-vm]: " "arch-vm" false VMNAME
 _read "Mot de passe (Root & User): " "" true PASS
 echo ""
 
-# --- 2️⃣ Sélection du Disque avec JSON ---
+# --- 2️⃣ Sélection du Disque avec JSON (sans jq) ---
 echo -e "\n${C_BLUE}[*] Analyse des disques disponibles...${C_NC}"
 
 # Récupérer les disques en JSON
 DISKS_JSON=$(lsblk -J -d -o NAME,SIZE,TYPE,MODEL,TRAN 2>/dev/null)
 
-# Parser avec jq et filtrer les disques physiques
-mapfile -t DISK_NAMES < <(echo "$DISKS_JSON" | jq -r '.blockdevices[] | select(.type=="disk") | .name')
-mapfile -t DISK_SIZES < <(echo "$DISKS_JSON" | jq -r '.blockdevices[] | select(.type=="disk") | .size')
-mapfile -t DISK_MODELS < <(echo "$DISKS_JSON" | jq -r '.blockdevices[] | select(.type=="disk") | .model // "N/A"')
-mapfile -t DISK_TRANS < <(echo "$DISKS_JSON" | jq -r '.blockdevices[] | select(.type=="disk") | .tran // "N/A"')
+# Parser le JSON sans jq (méthode compatible ISO Arch)
+declare -a DISK_NAMES DISK_SIZES DISK_MODELS DISK_TRANS
+
+# Extraction avec grep et sed
+while IFS= read -r line; do
+    if [[ "$line" =~ \"name\":[[:space:]]*\"([^\"]+)\" ]]; then
+        name="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$line" =~ \"size\":[[:space:]]*\"([^\"]+)\" ]]; then
+        size="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$line" =~ \"type\":[[:space:]]*\"([^\"]+)\" ]]; then
+        type="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$line" =~ \"model\":[[:space:]]*\"([^\"]+)\" ]]; then
+        model="${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ \"model\":[[:space:]]*null ]]; then
+        model="N/A"
+    fi
+    if [[ "$line" =~ \"tran\":[[:space:]]*\"([^\"]+)\" ]]; then
+        tran="${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ \"tran\":[[:space:]]*null ]]; then
+        tran="N/A"
+    fi
+    
+    # Si on trouve un "}" et qu'on a un type "disk", on enregistre
+    if [[ "$line" =~ \} ]] && [[ "$type" == "disk" ]] && [[ -n "$name" ]]; then
+        DISK_NAMES+=("$name")
+        DISK_SIZES+=("$size")
+        DISK_MODELS+=("${model:-N/A}")
+        DISK_TRANS+=("${tran:-N/A}")
+        name="" size="" type="" model="" tran=""
+    fi
+done <<< "$DISKS_JSON"
 
 if [ ${#DISK_NAMES[@]} -eq 0 ]; then
     echo -e "${C_RED}[!] Aucun disque détecté.${C_NC}"

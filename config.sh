@@ -118,8 +118,69 @@ done
 echo -e "${C_YELLOW}[*] Synchronisation de l'horloge système...${C_NC}"
 timedatectl set-ntp true 2>/dev/null || true
 
+# --- 0️⃣.5 Configuration des dépôts et miroirs ---
+echo -e "\n${C_BLUE}[*] Configuration des dépôts Arch Linux...${C_NC}"
+
+# Vérifier si les dépôts core et extra sont activés
+if ! grep -q '^\[core\]' /etc/pacman.conf || ! grep -q '^\[extra\]' /etc/pacman.conf; then
+    echo -e "${C_YELLOW}  ⚠ Les dépôts [core] et [extra] ne sont pas tous activés${C_NC}"
+    echo "  → Activation des dépôts essentiels..."
+    
+    # Backup du fichier original
+    cp /etc/pacman.conf /etc/pacman.conf.backup
+    
+    # S'assurer que core et extra sont décommentés
+    sed -i '/^\[core\]/,/^Include/ s/^#//' /etc/pacman.conf
+    sed -i '/^\[extra\]/,/^Include/ s/^#//' /etc/pacman.conf
+    
+    # Si extra n'existe pas du tout, l'ajouter
+    if ! grep -q '\[extra\]' /etc/pacman.conf; then
+        cat >> /etc/pacman.conf <<'EOF'
+
+[extra]
+Include = /etc/pacman.d/mirrorlist
+EOF
+    fi
+fi
+
+# Optimiser les miroirs avec reflector (si disponible)
+echo -e "${C_BLUE}[*] Optimisation des miroirs...${C_NC}"
+if command -v reflector &>/dev/null; then
+    echo "  → Utilisation de reflector pour trouver les meilleurs miroirs..."
+    reflector --country France,Germany,Belgium --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist 2>/dev/null || {
+        echo -e "${C_YELLOW}  ⚠ Reflector a échoué, miroirs par défaut conservés${C_NC}"
+    }
+else
+    echo "  → Reflector non disponible, vérification des miroirs existants..."
+    if [ ! -s /etc/pacman.d/mirrorlist ] || ! grep -q '^Server' /etc/pacman.d/mirrorlist; then
+        echo -e "${C_YELLOW}  ⚠ Mirrorlist vide ou invalide, ajout de miroirs de secours...${C_NC}"
+        cat > /etc/pacman.d/mirrorlist <<'EOF'
+# Miroirs de secours
+Server = https://archlinux.mailtunnel.eu/$repo/os/$arch
+Server = https://mirror.theo546.fr/archlinux/$repo/os/$arch
+Server = https://arch.yourlabs.org/$repo/os/$arch
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+EOF
+    fi
+fi
+
+# Synchroniser les bases de données
+echo -e "${C_BLUE}[*] Synchronisation des bases de données pacman...${C_NC}"
+pacman -Sy --noconfirm 2>&1 | grep -v "warning: database file"
+
+# Vérifier que les paquets de base sont accessibles
+echo -e "${C_BLUE}[*] Vérification de l'accès aux dépôts...${C_NC}"
+if ! pacman -Si base >/dev/null 2>&1; then
+    echo -e "${C_RED}[!] ERREUR: Les dépôts ne sont pas accessibles !${C_NC}"
+    echo "Vérifiez votre connexion internet et les miroirs."
+    echo "Mirrorlist actuelle:"
+    head -n 20 /etc/pacman.d/mirrorlist
+    exit 1
+fi
+echo -e "${C_GREEN}  ✓ Dépôts accessibles${C_NC}"
+
 # --- 1️⃣ Questionnaire Utilisateur ---
-echo -e "${C_CYAN}=== Configuration de base ===${C_NC}"
+echo -e "\n${C_CYAN}=== Configuration de base ===${C_NC}"
 _read "Nom d'utilisateur [user]: " "user" false USERNAME
 _read "Nom de la machine [arch-vm]: " "arch-vm" false VMNAME
 _read "Mot de passe (Root & User): " "" true PASS
@@ -233,6 +294,7 @@ _read "Choix [1-4]: " "3" false DE_CHOICE
 
 DE_PACKAGES=""
 DM_SERVICE=""
+BROWSER=""
 case "$DE_CHOICE" in
     1)
         echo -e "${C_GREEN}→ GNOME sélectionné (minimal)${C_NC}"
@@ -247,6 +309,52 @@ case "$DE_CHOICE" in
     3)
         echo -e "${C_GREEN}→ XFCE sélectionné${C_NC}"
         DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4-session xfce4-panel thunar xfce4-terminal"
+        DM_SERVICE="lightdm"
+        ;;
+    4)
+        echo -e "${C_GREEN}→ Installation minimale${C_NC}"
+        DE_PACKAGES=""
+        DM_SERVICE=""
+        ;;
+    *)
+        echo -e "${C_YELLOW}⚠ Choix invalide, XFCE par défaut${C_NC}"
+        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4-session xfce4-panel thunar xfce4-terminal"
+        DM_SERVICE="lightdm"
+        ;;
+esac
+
+# --- 5️⃣ Choix du navigateur (si environnement graphique) ---
+if [ -n "$DE_PACKAGES" ]; then
+    echo -e "\n${C_CYAN}=== Navigateur Web ===${C_NC}"
+    echo "1) Firefox (recommandé - 79 MB)"
+    echo "2) Chromium (119 MB)"
+    echo "3) Les deux"
+    echo "4) Aucun"
+    _read "Choix [1-4]: " "1" false BROWSER_CHOICE
+    
+    case "$BROWSER_CHOICE" in
+        1)
+            echo -e "${C_GREEN}→ Firefox sélectionné${C_NC}"
+            BROWSER="firefox"
+            ;;
+        2)
+            echo -e "${C_GREEN}→ Chromium sélectionné${C_NC}"
+            BROWSER="chromium"
+            ;;
+        3)
+            echo -e "${C_GREEN}→ Firefox + Chromium sélectionnés${C_NC}"
+            BROWSER="firefox chromium"
+            ;;
+        4)
+            echo -e "${C_YELLOW}→ Aucun navigateur${C_NC}"
+            BROWSER=""
+            ;;
+        *)
+            echo -e "${C_YELLOW}⚠ Choix invalide, Firefox par défaut${C_NC}"
+            BROWSER="firefox"
+            ;;
+    esac
+fi
         DM_SERVICE="lightdm"
         ;;
     4)
@@ -526,7 +634,12 @@ if [ -n "$DE_PACKAGES" ]; then
     PKGS+=(xorg-server)
     read -r -a DE_ARRAY <<< "$DE_PACKAGES"
     PKGS+=("${DE_ARRAY[@]}")
-    PKGS+=(firefox)
+    
+    # Ajouter le(s) navigateur(s) choisi(s)
+    if [ -n "$BROWSER" ]; then
+        read -r -a BROWSER_ARRAY <<< "$BROWSER"
+        PKGS+=("${BROWSER_ARRAY[@]}")
+    fi
     
     # Proposer l'installation complète du groupe
     echo ""
@@ -543,10 +656,42 @@ fi
 # Docker
 if [[ "$INSTALL_DOCKER" =~ ^[YyOo] ]]; then
     PKGS+=(docker docker-compose)
+    echo -e "${C_CYAN}  → Docker + Docker Compose seront installés${C_NC}"
 fi
 
+# Vérification de la disponibilité des paquets avant installation
+echo -e "\n${C_BLUE}[*] Vérification de la disponibilité des paquets...${C_NC}"
+MISSING_PKGS=()
+for pkg in "${PKGS[@]}"; do
+    if ! pacman -Si "$pkg" >/dev/null 2>&1; then
+        MISSING_PKGS+=("$pkg")
+    fi
+done
+
+if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+    echo -e "${C_YELLOW}⚠ Paquets non trouvés dans les dépôts (ils seront ignorés):${C_NC}"
+    for pkg in "${MISSING_PKGS[@]}"; do
+        echo "  - $pkg"
+        # Retirer le paquet manquant du tableau
+        PKGS=("${PKGS[@]/$pkg}")
+    done
+    # Nettoyer les éléments vides
+    PKGS=("${PKGS[@]}")
+fi
+
+# Afficher un récapitulatif
+echo -e "\n${C_CYAN}╔════════════════════════════════════════════════════════╗${C_NC}"
+echo -e "${C_CYAN}║           RÉCAPITULATIF DE L'INSTALLATION             ║${C_NC}"
+echo -e "${C_CYAN}╚════════════════════════════════════════════════════════╝${C_NC}"
+echo -e "  ${C_GREEN}✓${C_NC} Paquets à installer: ${C_YELLOW}${#PKGS[@]}${C_NC}"
+[ -n "$BROWSER" ] && echo -e "  ${C_GREEN}✓${C_NC} Navigateur(s): ${C_YELLOW}${BROWSER}${C_NC}"
+[[ "$INSTALL_DOCKER" =~ ^[YyOo] ]] && echo -e "  ${C_GREEN}✓${C_NC} Docker: ${C_YELLOW}Oui${C_NC}"
+[[ "$INSTALL_NVM" =~ ^[YyOo] ]] && echo -e "  ${C_GREEN}✓${C_NC} NVM (Node): ${C_YELLOW}Oui (v0.40.4)${C_NC}"
+[[ "$INSTALL_FULL_DE" =~ ^[YyOo] ]] && echo -e "  ${C_GREEN}✓${C_NC} Desktop complet: ${C_YELLOW}Oui${C_NC}"
+echo ""
+
 # Installation des paquets de base
-echo -e "\n${C_GREEN}[*] Installation du système (${#PKGS[@]} paquets)...${C_NC}"
+echo -e "${C_GREEN}[*] Installation du système de base...${C_NC}"
 pacstrap -K /mnt "${PKGS[@]}"
 
 # Installation des groupes complets si demandé
@@ -554,11 +699,19 @@ if [[ "$INSTALL_FULL_DE" =~ ^[YyOo]$ ]]; then
     echo -e "${C_GREEN}[*] Installation du groupe complet DE (cela peut prendre du temps)...${C_NC}"
     case "$DE_CHOICE" in
         1)
-            # Installer le groupe gnome en répondant automatiquement "oui" à tout
-            yes "" | pacstrap /mnt gnome 2>/dev/null || pacstrap /mnt gnome
+            # Vérifier que le groupe gnome existe
+            if pacman -Sg gnome >/dev/null 2>&1; then
+                yes "" | pacstrap /mnt gnome 2>/dev/null || pacstrap /mnt gnome
+            else
+                echo -e "${C_YELLOW}⚠ Le groupe 'gnome' n'est pas disponible, installation ignorée${C_NC}"
+            fi
             ;;
         2)
-            yes "" | pacstrap /mnt plasma 2>/dev/null || pacstrap /mnt plasma
+            if pacman -Sg plasma >/dev/null 2>&1; then
+                yes "" | pacstrap /mnt plasma 2>/dev/null || pacstrap /mnt plasma
+            else
+                echo -e "${C_YELLOW}⚠ Le groupe 'plasma' n'est pas disponible, installation ignorée${C_NC}"
+            fi
             ;;
     esac
 fi
@@ -626,7 +779,7 @@ sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 # NVM (Node Version Manager)
 if [[ "$INSTALL_NVM" =~ ^[YyOo]$ ]]; then
     echo "Installation de NVM pour $USERNAME..."
-    sudo -u "$USERNAME" bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'
+    sudo -u "$USERNAME" bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash'
 fi
 
 # Swapfile si nécessaire
@@ -691,6 +844,7 @@ echo -e "  ${C_CYAN}Mode boot:${C_NC}      $BOOT_MODE"
 echo -e "  ${C_CYAN}Hostname:${C_NC}       $VMNAME"
 echo -e "  ${C_CYAN}Utilisateur:${C_NC}    $USERNAME"
 echo -e "  ${C_CYAN}Desktop:${C_NC}        ${DE_CHOICE}"
+[ -n "$BROWSER" ] && echo -e "  ${C_CYAN}Navigateur:${C_NC}     $BROWSER"
 [[ "$INSTALL_DOCKER" =~ ^[YyOo]$ ]] && echo -e "  ${C_CYAN}Docker:${C_NC}         ✓ Installé"
 [[ "$INSTALL_NVM" =~ ^[YyOo]$ ]] && echo -e "  ${C_CYAN}NVM:${C_NC}            ✓ Installé"
 echo ""

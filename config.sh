@@ -235,21 +235,18 @@ DE_PACKAGES=""
 DM_SERVICE=""
 case "$DE_CHOICE" in
     1)
-        echo -e "${C_GREEN}→ GNOME sélectionné${C_NC}"
-        DE_PACKAGES="gdm gnome-shell gnome-control-center gnome-terminal nautilus"
-        DE_PACKAGES="$DE_PACKAGES gnome-tweaks gnome-system-monitor gedit"
+        echo -e "${C_GREEN}→ GNOME sélectionné (minimal)${C_NC}"
+        DE_PACKAGES="gdm"
         DM_SERVICE="gdm"
         ;;
     2)
-        echo -e "${C_GREEN}→ KDE Plasma sélectionné${C_NC}"
-        DE_PACKAGES="sddm plasma-desktop plasma-nm plasma-pa konsole dolphin kate"
-        DE_PACKAGES="$DE_PACKAGES spectacle ark gwenview okular"
+        echo -e "${C_GREEN}→ KDE Plasma sélectionné (minimal)${C_NC}"
+        DE_PACKAGES="sddm plasma-desktop konsole dolphin"
         DM_SERVICE="sddm"
         ;;
     3)
         echo -e "${C_GREEN}→ XFCE sélectionné${C_NC}"
-        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4 xfce4-terminal thunar"
-        DE_PACKAGES="$DE_PACKAGES xfce4-screenshooter xfce4-taskmanager xfce4-pulseaudio-plugin"
+        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4-session xfce4-panel thunar xfce4-terminal"
         DM_SERVICE="lightdm"
         ;;
     4)
@@ -259,8 +256,7 @@ case "$DE_CHOICE" in
         ;;
     *)
         echo -e "${C_YELLOW}⚠ Choix invalide, XFCE par défaut${C_NC}"
-        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4 xfce4-terminal thunar"
-        DE_PACKAGES="$DE_PACKAGES xfce4-screenshooter xfce4-taskmanager xfce4-pulseaudio-plugin"
+        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4-session xfce4-panel thunar xfce4-terminal"
         DM_SERVICE="lightdm"
         ;;
 esac
@@ -555,13 +551,14 @@ pacstrap -K /mnt "${PKGS[@]}"
 
 # Installation des groupes complets si demandé
 if [[ "$INSTALL_FULL_DE" =~ ^[YyOo]$ ]]; then
-    echo -e "${C_GREEN}[*] Installation du groupe complet...${C_NC}"
+    echo -e "${C_GREEN}[*] Installation du groupe complet DE (cela peut prendre du temps)...${C_NC}"
     case "$DE_CHOICE" in
         1)
-            pacstrap /mnt gnome gnome-extra
+            # Installer le groupe gnome en répondant automatiquement "oui" à tout
+            yes "" | pacstrap /mnt gnome 2>/dev/null || pacstrap /mnt gnome
             ;;
         2)
-            pacstrap /mnt plasma kde-applications
+            yes "" | pacstrap /mnt plasma 2>/dev/null || pacstrap /mnt plasma
             ;;
     esac
 fi

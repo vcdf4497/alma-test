@@ -323,6 +323,19 @@ case "$DE_CHOICE" in
         ;;
 esac
 
+        ;;
+    4)
+        echo -e "${C_GREEN}→ Installation minimale${C_NC}"
+        DE_PACKAGES=""
+        DM_SERVICE=""
+        ;;
+    *)
+        echo -e "${C_YELLOW}⚠ Choix invalide, XFCE par défaut${C_NC}"
+        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4-session xfce4-panel thunar xfce4-terminal"
+        DM_SERVICE="lightdm"
+        ;;
+esac
+
 # --- 5️⃣ Choix du navigateur (si environnement graphique) ---
 if [ -n "$DE_PACKAGES" ]; then
     echo -e "\n${C_CYAN}=== Navigateur Web ===${C_NC}"
@@ -355,21 +368,8 @@ if [ -n "$DE_PACKAGES" ]; then
             ;;
     esac
 fi
-        DM_SERVICE="lightdm"
-        ;;
-    4)
-        echo -e "${C_GREEN}→ Installation minimale${C_NC}"
-        DE_PACKAGES=""
-        DM_SERVICE=""
-        ;;
-    *)
-        echo -e "${C_YELLOW}⚠ Choix invalide, XFCE par défaut${C_NC}"
-        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4-session xfce4-panel thunar xfce4-terminal"
-        DM_SERVICE="lightdm"
-        ;;
-esac
 
-# --- 5️⃣ Partitionnement intelligent ---
+# --- 6️⃣ Partitionnement intelligent ---
 echo -e "\n${C_CYAN}=== Planification du partitionnement ===${C_NC}"
 
 # Détection du mode de boot
@@ -421,7 +421,7 @@ if [[ ! "$CONFIRM" =~ ^(oui|OUI|Oui|yes|YES|Yes|y|Y|o|O)$ ]]; then
     exit 0
 fi
 
-# --- 6️⃣ Nettoyage du disque avant partitionnement ---
+# --- 7️⃣ Nettoyage du disque avant partitionnement ---
 echo -e "\n${C_YELLOW}[*] Nettoyage du disque $DISK...${C_NC}"
 
 # Démonter toutes les partitions du disque
@@ -440,7 +440,7 @@ fuser -km "$DISK" 2>/dev/null || true
 # Attendre un peu
 sleep 2
 
-# --- 7️⃣ Partitionnement effectif ---
+# --- 8️⃣ Partitionnement effectif ---
 echo -e "\n${C_GREEN}[*] Partitionnement de $DISK...${C_NC}"
 
 if [ "$BOOT_MODE" = "UEFI" ]; then
@@ -573,7 +573,7 @@ echo -e "\n${C_BLUE}Partitions créées:${C_NC}"
 
 sleep 2
 
-# --- 7️⃣ Formatage & Montage ---
+# --- 9️⃣ Formatage & Montage ---
 echo -e "\n${C_GREEN}[*] Formatage des partitions...${C_NC}"
 
 if [ -n "$P_SWAP" ]; then
@@ -598,7 +598,7 @@ if [ "$BOOT_MODE" = "UEFI" ] && [ -n "$P_EFI" ]; then
     mount "$P_EFI" /mnt/boot/efi
 fi
 
-# --- 8️⃣ Pacstrap ---
+# --- 🔟 Pacstrap ---
 echo -e "\n${C_GREEN}[*] Installation du système de base...${C_NC}"
 
 PKGS=(
@@ -716,7 +716,7 @@ if [[ "$INSTALL_FULL_DE" =~ ^[YyOo]$ ]]; then
     esac
 fi
 
-# --- 9️⃣ Configuration système ---
+# --- 1️⃣1️⃣ Configuration système ---
 echo -e "\n${C_GREEN}[*] Génération de fstab...${C_NC}"
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -854,3 +854,4 @@ read -r </dev/tty
 
 umount -R /mnt 2>/dev/null || true
 reboot
+

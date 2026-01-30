@@ -236,17 +236,20 @@ DM_SERVICE=""
 case "$DE_CHOICE" in
     1)
         echo -e "${C_GREEN}→ GNOME sélectionné${C_NC}"
-        DE_PACKAGES="gnome gnome-extra gdm"
+        DE_PACKAGES="gdm gnome-shell gnome-control-center gnome-terminal nautilus"
+        DE_PACKAGES="$DE_PACKAGES gnome-tweaks gnome-system-monitor gedit"
         DM_SERVICE="gdm"
         ;;
     2)
         echo -e "${C_GREEN}→ KDE Plasma sélectionné${C_NC}"
-        DE_PACKAGES="plasma kde-applications sddm"
+        DE_PACKAGES="sddm plasma-desktop plasma-nm plasma-pa konsole dolphin kate"
+        DE_PACKAGES="$DE_PACKAGES spectacle ark gwenview okular"
         DM_SERVICE="sddm"
         ;;
     3)
         echo -e "${C_GREEN}→ XFCE sélectionné${C_NC}"
-        DE_PACKAGES="xfce4 xfce4-goodies lightdm lightdm-gtk-greeter"
+        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4 xfce4-terminal thunar"
+        DE_PACKAGES="$DE_PACKAGES xfce4-screenshooter xfce4-taskmanager xfce4-pulseaudio-plugin"
         DM_SERVICE="lightdm"
         ;;
     4)
@@ -256,7 +259,8 @@ case "$DE_CHOICE" in
         ;;
     *)
         echo -e "${C_YELLOW}⚠ Choix invalide, XFCE par défaut${C_NC}"
-        DE_PACKAGES="xfce4 xfce4-goodies lightdm lightdm-gtk-greeter"
+        DE_PACKAGES="lightdm lightdm-gtk-greeter xfce4 xfce4-terminal thunar"
+        DE_PACKAGES="$DE_PACKAGES xfce4-screenshooter xfce4-taskmanager xfce4-pulseaudio-plugin"
         DM_SERVICE="lightdm"
         ;;
 esac
@@ -462,11 +466,23 @@ if systemd-detect-virt -q; then
 fi
 
 # Desktop Environment
+INSTALL_FULL_DE=false
 if [ -n "$DE_PACKAGES" ]; then
     PKGS+=(xorg-server)
     read -r -a DE_ARRAY <<< "$DE_PACKAGES"
     PKGS+=("${DE_ARRAY[@]}")
     PKGS+=(firefox)
+    
+    # Proposer l'installation complète du groupe
+    echo ""
+    case "$DE_CHOICE" in
+        1)
+            _read "Installer le groupe complet 'gnome' (plus de paquets) ? (y/n) [n]: " "n" false INSTALL_FULL_DE
+            ;;
+        2)
+            _read "Installer le groupe complet 'plasma' (plus de paquets) ? (y/n) [n]: " "n" false INSTALL_FULL_DE
+            ;;
+    esac
 fi
 
 # Docker
@@ -474,8 +490,22 @@ if [[ "$INSTALL_DOCKER" =~ ^[YyOo] ]]; then
     PKGS+=(docker docker-compose)
 fi
 
-# Installation
+# Installation des paquets de base
+echo -e "\n${C_GREEN}[*] Installation du système (${#PKGS[@]} paquets)...${C_NC}"
 pacstrap -K /mnt "${PKGS[@]}"
+
+# Installation des groupes complets si demandé
+if [[ "$INSTALL_FULL_DE" =~ ^[YyOo]$ ]]; then
+    echo -e "${C_GREEN}[*] Installation du groupe complet...${C_NC}"
+    case "$DE_CHOICE" in
+        1)
+            pacstrap /mnt gnome gnome-extra
+            ;;
+        2)
+            pacstrap /mnt plasma kde-applications
+            ;;
+    esac
+fi
 
 # --- 9️⃣ Configuration système ---
 echo -e "\n${C_GREEN}[*] Génération de fstab...${C_NC}"

@@ -332,8 +332,8 @@ install_dependencies() {
     case "$PKG_MANAGER" in
         pacman)
             log_info "Mise à jour du système Arch..."
-            sudo pacman -Syu --needed --noconfirm git python tigervnc python-pipx xorg-server xfce4 || \
-            sudo pacman -S --needed --noconfirm git python tigervnc python-pip xorg-server xfce4
+            sudo pacman -Syu --needed --noconfirm git python tigervnc python-pipx xorg-server xfce4 xorg-xvfb || \
+            sudo pacman -S --needed --noconfirm git python tigervnc python-pip xorg-server xfce4 xorg-xvfb
             ;;
             
         apt)
@@ -497,19 +497,11 @@ setup_vnc_password() {
         return 0
     fi
     
-    if $SKIP_PASSWORD; then
-        log_warning "Configuration du mot de passe ignorée (--skip-password)"
-        log_warning "Mot de passe par défaut: 'novnc123'"
-        echo -e "novnc123\nnovnc123\nn" | vncpasswd 2>/dev/null
-        log_warning "CHANGEZ-LE avec: vncpasswd"
-        return 0
-    fi
-    
     log_info "Configuration du mot de passe VNC"
     echo ""
     
+    # Si mot de passe fourni en argument
     if [[ -n "$VNC_PASSWORD" ]]; then
-        # Mot de passe fourni en argument
         log_info "Utilisation du mot de passe fourni en argument"
         echo -e "$VNC_PASSWORD\n$VNC_PASSWORD\nn" | vncpasswd 2>/dev/null || {
             log_error "Impossible de définir le mot de passe"
@@ -519,39 +511,73 @@ setup_vnc_password() {
         return 0
     fi
     
+    # Si skip password demandé
+    if $SKIP_PASSWORD; then
+        log_warning "Mot de passe par défaut: 'novnc123'"
+        echo -e "novnc123\nnovnc123\nn" | vncpasswd 2>/dev/null
+        log_warning "CHANGEZ-LE avec: vncpasswd"
+        log_success "Mot de passe VNC configuré"
+        return 0
+    fi
+    
+    # Mode interactif : demander dans TUI ou CLI
     if $USE_TUI; then
+        # Avec TUI, on demande le mot de passe
+        local temp_file=$(mktemp)
+        
         $TUI_CMD --title "Mot de passe VNC" \
-            --msgbox "Vous allez maintenant définir un mot de passe VNC.\n\nCe mot de passe sera requis pour se connecter\nau serveur VNC via l'interface web.\n\nREMARQUE: Le mot de passe sera demandé dans le terminal." 12 60
-    else
-        log_info "Définition du mot de passe VNC:"
+            --passwordbox "Entrez un mot de passe VNC (8 caractères minimum):\n\nCe mot de passe sera requis pour se connecter au serveur VNC." 12 60 2>"$temp_file"
+        
+        if [[ $? -eq 0 ]]; then
+            local pass1=$(cat "$temp_file")
+            
+            $TUI_CMD --title "Confirmation" \
+                --passwordbox "Confirmez le mot de passe VNC:" 10 60 2>"$temp_file"
+            
+            if [[ $? -eq 0 ]]; then
+                local pass2=$(cat "$temp_file")
+                
+                if [[ "$pass1" == "$pass2" ]] && [[ ${#pass1} -ge 6 ]]; then
+                    echo -e "$pass1\n$pass1\nn" | vncpasswd 2>/dev/null
+                    rm -f "$temp_file"
+                    log_success "Mot de passe VNC configuré"
+                    return 0
+                else
+                    rm -f "$temp_file"
+                    log_error "Les mots de passe ne correspondent pas ou sont trop courts"
+                    log_warning "Utilisation du mot de passe par défaut: 'novnc123'"
+                    echo -e "novnc123\nnovnc123\nn" | vncpasswd 2>/dev/null
+                    return 0
+                fi
+            fi
+        fi
+        rm -f "$temp_file"
+    fi
+    
+    # Mode CLI ou échec TUI : vérifier si terminal interactif
+    if [[ -t 0 ]] && [[ -t 1 ]]; then
+        # Terminal interactif : utiliser vncpasswd directement
+        log_info "Veuillez définir un mot de passe VNC:"
         echo ""
-    fi
-    
-    # Vérifier si on est en mode interactif
-    if [[ -t 0 ]]; then
-        # Mode interactif normal
-        vncpasswd || {
-            log_error "Erreur lors de la configuration du mot de passe"
-            log_warning "Création d'un mot de passe par défaut..."
+        
+        if vncpasswd 2>&1; then
+            log_success "Mot de passe VNC configuré"
+            return 0
+        else
+            log_warning "Erreur lors de la saisie, utilisation du mot de passe par défaut"
             echo -e "novnc123\nnovnc123\nn" | vncpasswd 2>/dev/null
-            log_warning "Mot de passe par défaut: 'novnc123' - CHANGEZ-LE avec: vncpasswd"
-        }
+            log_warning "Mot de passe par défaut: 'novnc123' - Changez-le avec: vncpasswd"
+            return 0
+        fi
     else
-        # Mode non-interactif ou pipe
+        # Mode non-interactif (pipe, script, etc.)
         log_warning "Mode non-interactif détecté"
-        log_info "Création d'un mot de passe par défaut"
-        
-        echo -e "novnc123\nnovnc123\nn" | vncpasswd 2>/dev/null || {
-            log_error "Impossible de créer le mot de passe VNC"
-            log_info "Veuillez exécuter 'vncpasswd' manuellement après l'installation"
-            return 1
-        }
-        
-        log_warning "Mot de passe par défaut défini: 'novnc123'"
-        log_warning "CHANGEZ-LE immédiatement avec: vncpasswd"
+        log_info "Utilisation du mot de passe par défaut: 'novnc123'"
+        echo -e "novnc123\nnovnc123\nn" | vncpasswd 2>/dev/null
+        log_warning "CHANGEZ-LE avec: vncpasswd"
+        log_success "Mot de passe VNC configuré"
+        return 0
     fi
-    
-    log_success "Mot de passe VNC configuré"
 }
 
 # ============================================================================
@@ -618,35 +644,100 @@ start_vnc_server() {
     # Vérifier si un serveur VNC tourne déjà
     if pgrep -f "Xvnc $VNC_DISPLAY" >/dev/null 2>&1; then
         log_warning "Un serveur VNC tourne déjà sur $VNC_DISPLAY"
-        read -p "$(echo -e ${YELLOW}Voulez-vous le redémarrer?${NC} [o/N]: )" restart
-        if [[ "$restart" =~ ^[Oo]$ ]]; then
-            log_info "Arrêt du serveur existant..."
+        
+        # En mode auto, redémarrer automatiquement
+        if $AUTO_MODE; then
+            log_info "Mode automatique : redémarrage du serveur existant..."
             vncserver -kill "$VNC_DISPLAY" 2>/dev/null || true
             sleep 2
         else
-            log_info "Utilisation du serveur existant"
-            return 0
+            # Sinon demander seulement si terminal interactif
+            if [[ -t 0 ]] && [[ -t 1 ]]; then
+                read -p "$(echo -e ${YELLOW}Voulez-vous le redémarrer?${NC} [o/N]: )" restart
+                if [[ "$restart" =~ ^[Oo]$ ]]; then
+                    log_info "Arrêt du serveur existant..."
+                    vncserver -kill "$VNC_DISPLAY" 2>/dev/null || true
+                    sleep 2
+                else
+                    log_info "Utilisation du serveur existant"
+                    return 0
+                fi
+            else
+                log_info "Mode non-interactif : utilisation du serveur existant"
+                return 0
+            fi
         fi
     fi
     
     # Démarrer le serveur VNC
     log_info "Lancement de vncserver..."
-    vncserver "$VNC_DISPLAY" -geometry 1920x1080 -depth 24 || {
-        log_error "Erreur lors du démarrage de vncserver"
-        log_info "Tentative avec x11vnc..."
-        
-        # Fallback sur x11vnc
-        if command -v x11vnc &> /dev/null; then
-            x11vnc -display "$VNC_DISPLAY" -bg -nopw -listen localhost -xkb 2>/dev/null &
-            sleep 2
-            log_success "x11vnc démarré"
-        else
-            log_error "Impossible de démarrer un serveur VNC"
-            exit 1
-        fi
-    }
     
-    log_success "Serveur VNC démarré sur $VNC_DISPLAY (port $VNC_PORT)"
+    # Déterminer la version de vncserver et utiliser la bonne syntaxe
+    local vnc_version=$(vncserver --version 2>&1 | head -1)
+    
+    # TigerVNC 1.13+ utilise une syntaxe différente
+    if vncserver -list >/dev/null 2>&1; then
+        # Nouvelle syntaxe TigerVNC (1.13+)
+        log_info "TigerVNC moderne détecté, utilisation de la nouvelle syntaxe"
+        vncserver "$VNC_DISPLAY" -geometry 1920x1080 -depth 24 -localhost no 2>&1 || {
+            log_warning "Erreur avec la syntaxe moderne, tentative syntaxe alternative..."
+            # Essayer sans le display (TigerVNC 1.16+)
+            vncserver -geometry 1920x1080 -depth 24 -localhost no 2>&1 || {
+                log_error "Erreur lors du démarrage de vncserver"
+                log_info "Tentative avec x11vnc..."
+                start_x11vnc_fallback
+                return $?
+            }
+        }
+    else
+        # Ancienne syntaxe ou autre VNC server
+        vncserver "$VNC_DISPLAY" -geometry 1920x1080 -depth 24 2>&1 || {
+            log_error "Erreur lors du démarrage de vncserver"
+            log_info "Tentative avec x11vnc..."
+            start_x11vnc_fallback
+            return $?
+        }
+    fi
+    
+    # Vérifier que le serveur a bien démarré
+    sleep 2
+    if pgrep -f "Xvnc" >/dev/null 2>&1; then
+        log_success "Serveur VNC démarré sur $VNC_DISPLAY (port $VNC_PORT)"
+    else
+        log_error "Le serveur VNC ne semble pas avoir démarré"
+        log_info "Tentative avec x11vnc..."
+        start_x11vnc_fallback
+        return $?
+    fi
+}
+
+# Fonction de fallback pour x11vnc
+start_x11vnc_fallback() {
+    if command -v x11vnc &> /dev/null; then
+        # Démarrer un serveur X virtuel d'abord
+        if command -v Xvfb &> /dev/null; then
+            log_info "Démarrage de Xvfb..."
+            Xvfb "$VNC_DISPLAY" -screen 0 1920x1080x24 &
+            sleep 2
+        fi
+        
+        log_info "Démarrage de x11vnc..."
+        x11vnc -display "$VNC_DISPLAY" -bg -nopw -listen localhost -xkb -forever 2>/dev/null &
+        sleep 2
+        
+        if pgrep -f "x11vnc" >/dev/null 2>&1; then
+            log_success "x11vnc démarré"
+            return 0
+        else
+            log_error "Échec du démarrage de x11vnc"
+            return 1
+        fi
+    else
+        log_error "x11vnc non disponible"
+        log_error "Impossible de démarrer un serveur VNC"
+        log_info "Installez x11vnc ou vérifiez la configuration de TigerVNC"
+        return 1
+    fi
 }
 
 # ============================================================================
@@ -899,21 +990,23 @@ main() {
     # Vérification TUI
     check_tui
     
-    # Si TUI non disponible, proposer de l'installer
-    if ! $USE_TUI; then
-        read -p "$(echo -e ${YELLOW}Voulez-vous installer l\'interface TUI \(dialog\)?${NC} [O/n]: )" install_tui_choice
-        if [[ ! "$install_tui_choice" =~ ^[Nn]$ ]]; then
-            install_tui
-            check_tui
-        fi
+    # Si TUI non disponible et mode interactif, installer automatiquement
+    if ! $USE_TUI && [[ -t 0 ]] && [[ -t 1 ]] && ! $AUTO_MODE; then
+        log_info "Installation automatique de l'interface TUI pour une meilleure expérience..."
+        install_tui 2>/dev/null || log_info "TUI non installée, poursuite en mode CLI"
+        check_tui
     fi
     
     # Interface utilisateur
-    if $USE_TUI; then
+    if $USE_TUI && ! $AUTO_MODE; then
         tui_welcome
         tui_configure
-    else
+    elif ! $AUTO_MODE; then
+        cli_welcome
         cli_configure
+    else
+        cli_welcome
+        log_info "Mode automatique activé - utilisation des valeurs par défaut"
     fi
     
     # Installation

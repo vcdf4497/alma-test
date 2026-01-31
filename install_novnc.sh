@@ -213,7 +213,7 @@ install_tui() {
 # ============================================================================
 tui_welcome() {
     $TUI_CMD --title "noVNC Universal Installer" \
-        --msgbox "╔═══════════════════════════════════════════════╗\n║  Bienvenue dans l'installateur noVNC !       ║\n╚═══════════════════════════════════════════════╝\n\nCe script va installer et configurer:\n\n  • Serveur VNC (TigerVNC/TightVNC/x11vnc)\n  • noVNC (Interface web VNC)\n  • websockify (Proxy WebSocket)\n  • Interface web accessible via navigateur\n\nSystème détecté:\n  Distribution: $OS_TYPE\n  Gestionnaire: $PKG_MANAGER\n  Version: $OS_VERSION" 20 70
+        --msgbox "╔═══════════════════════════════════════════════╗\n║  Bienvenue dans l'installateur noVNC ! by mido ║\n╚═══════════════════════════════════════════════╝\n\nCe script va installer et configurer:\n\n  • Serveur VNC (TigerVNC/TightVNC/x11vnc)\n  • noVNC (Interface web VNC)\n  • websockify (Proxy WebSocket)\n  • Interface web accessible via navigateur\n\nSystème détecté:\n  Distribution: $OS_TYPE\n  Gestionnaire: $PKG_MANAGER\n  Version: $OS_VERSION" 20 70
 }
 
 # ============================================================================

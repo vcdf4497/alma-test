@@ -332,8 +332,8 @@ install_dependencies() {
     case "$PKG_MANAGER" in
         pacman)
             log_info "Mise à jour du système Arch..."
-            sudo pacman -Syu --needed --noconfirm git python tigervnc python-pipx xorg-server xfce4 xorg-xvfb || \
-            sudo pacman -S --needed --noconfirm git python tigervnc python-pip xorg-server xfce4 xorg-xvfb
+            sudo pacman -Syu --needed --noconfirm git python tigervnc python-pipx xorg-server xfce4 xorg-server-xvfb || \
+            sudo pacman -S --needed --noconfirm git python tigervnc python-pip xorg-server xfce4 xorg-server-xvfb
             ;;
             
         apt)
